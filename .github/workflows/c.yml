@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       n:
-        description: 서버 수(최대 15)
+        description: 서버 수(최대 20)
         required: false
         default: '5'
         type: string
@@ -42,7 +42,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, sys
-          MAX_N, PER_MAX = 15, 450
+          MAX_N, PER_MAX = 20, 450
           try:
               got = json.loads(os.environ.get("Q", ""))
           except ValueError:
@@ -89,7 +89,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      max-parallel: 15
+      max-parallel: 20
       matrix:
         i: ${{ fromJSON(needs.plan.outputs.idx) }}
     steps:
