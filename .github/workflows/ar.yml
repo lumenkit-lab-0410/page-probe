@@ -1,0 +1,77 @@
+name: ar
+
+# 카페 글 본문 열기(목록 파일 · 서버 n대). c.yml · k.yml 과 따로 돈다.
+on:
+  workflow_dispatch:
+    inputs:
+      f:
+        description: 저장소 안 주소 목록 파일(JSON 배열)
+        required: true
+        type: string
+      n:
+        description: 서버 수(최대 15)
+        required: false
+        default: '1'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      idx: ${{ steps.p.outputs.idx }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        env:
+          F: ${{ inputs.f }}
+          N: ${{ inputs.n }}
+        shell: python
+        run: |
+          import json, os
+          words = [w for w in json.load(open(os.environ["F"], encoding="utf-8")) if isinstance(w, str) and w.strip()]
+          n = max(1, min(int(os.environ.get("N") or 1), 15, len(words)))
+          os.makedirs("plan", exist_ok=True)
+          for i in range(n):
+              json.dump(words[i::n], open(f"plan/t{i}.json", "w", encoding="utf-8"), ensure_ascii=False)
+          open(os.environ["GITHUB_OUTPUT"], "a").write("idx=" + json.dumps(list(range(n))) + "\n")
+          print(len(words), n)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ap-${{ github.run_id }}
+          path: plan/
+          retention-days: 7
+  open:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        i: ${{ fromJSON(needs.plan.outputs.idx) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ap-${{ github.run_id }}
+          path: plan
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi==0.15.0
+      - env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          mkdir -p out
+          python ar/ar_run.py --targets "plan/t${{ matrix.i }}.json" --out out/글.jsonl
+      - if: always()
+        run: touch out/글.jsonl
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ar-${{ github.run_id }}-${{ matrix.i }}
+          path: out/
+          retention-days: 7
