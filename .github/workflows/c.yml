@@ -20,7 +20,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: c-batch
+  group: c-batch-yt1946
   cancel-in-progress: false
 
 env:
