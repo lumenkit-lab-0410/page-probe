@@ -1,0 +1,81 @@
+name: k
+
+# 쿠팡 검색 결과 위 상품 받기(키워드마다 새 브라우저 · 쿠키 없음). c.yml 과 따로 돈다.
+on:
+  workflow_dispatch:
+    inputs:
+      q:
+        description: 검색어 목록(JSON 문자열 배열)
+        required: true
+        type: string
+      n:
+        description: 서버 수(최대 10)
+        required: false
+        default: '1'
+        type: string
+      mode:
+        description: probe | pw
+        required: false
+        default: 'pw'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      idx: ${{ steps.p.outputs.idx }}
+    steps:
+      - id: p
+        env:
+          Q: ${{ inputs.q }}
+          N: ${{ inputs.n }}
+        shell: python
+        run: |
+          import json, os
+          words = [w.strip() for w in json.loads(os.environ["Q"]) if isinstance(w, str) and w.strip()]
+          n = max(1, min(int(os.environ.get("N") or 1), 10, len(words)))
+          os.makedirs("plan", exist_ok=True)
+          for i in range(n):
+              json.dump(words[i::n], open(f"plan/t{i}.json", "w", encoding="utf-8"), ensure_ascii=False)
+          open(os.environ["GITHUB_OUTPUT"], "a").write("idx=" + json.dumps(list(range(n))) + "\n")
+          print(len(words), n)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kp-${{ github.run_id }}
+          path: plan/
+          retention-days: 7
+  scan:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        i: ${{ fromJSON(needs.plan.outputs.idx) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kp-${{ github.run_id }}
+          path: plan
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q playwright==1.48.0 curl_cffi==0.15.0 && sudo apt-get install -y -q xvfb fonts-noto-cjk >/dev/null
+      - env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          mkdir -p out
+          curl -s https://api.ipify.org; echo
+          xvfb-run -a python kp/kp_run.py --targets "plan/t${{ matrix.i }}.json" --out out/kp.jsonl --mode "${{ inputs.mode }}"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kr-${{ github.run_id }}-${{ matrix.i }}
+          path: out/
+          retention-days: 7
+          if-no-files-found: warn
