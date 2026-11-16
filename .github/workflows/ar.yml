@@ -66,7 +66,7 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           mkdir -p out
-          python ar/ar_run.py --targets "plan/t${{ matrix.i }}.json" --out out/글.jsonl
+          python ar/ar_run_cm.py --targets "plan/t${{ matrix.i }}.json" --out out/글.jsonl
       - if: always()
         run: touch out/글.jsonl
       - if: always()
