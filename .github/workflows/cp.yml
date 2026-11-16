@@ -1,0 +1,66 @@
+name: cp
+
+# 쿠팡 검색 화면을 기록 없는 새 창(시크릿과 같은 조건)으로 열어 화면을 받아 둔다. 키워드 문자열만 받는다.
+on:
+  workflow_dispatch:
+    inputs:
+      q:
+        description: 키워드 JSON 배열
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -q curl_cffi==0.15.0 playwright==1.48.0 && python -m playwright install --with-deps chromium > /dev/null
+      - env:
+          Q: ${{ inputs.q }}
+          PYTHONIOENCODING: utf-8
+        shell: python
+        run: |
+          import json, os, time, random, gzip, urllib.parse
+          from curl_cffi import requests as cr
+          from playwright.sync_api import sync_playwright
+          os.makedirs("out", exist_ok=True)
+          qs = json.loads(os.environ["Q"])
+          log = open("out/상태.jsonl", "w", encoding="utf-8")
+          with sync_playwright() as p:
+              b = p.chromium.launch(headless=True, args=["--mute-audio", "--disable-blink-features=AutomationControlled"])
+              for i, q in enumerate(qs):
+                  url = "https://www.coupang.com/np/search?q=" + urllib.parse.quote(q) + "&channel=user"
+                  rec = {"키워드": q, "주소": url}
+                  try:
+                      r = cr.get(url, impersonate="chrome", timeout=30, headers={"Accept-Language": "ko-KR,ko;q=0.9"})
+                      rec["curl_상태"] = r.status_code; rec["curl_길이"] = len(r.text)
+                      gzip.open(f"out/c{i:03d}_curl.html.gz", "wt", encoding="utf-8").write(r.text)
+                  except Exception as e:
+                      rec["curl_오류"] = str(e)[:200]
+                  try:
+                      ctx = b.new_context(locale="ko-KR", user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36", viewport={"width": 1366, "height": 900})
+                      pg = ctx.new_page()
+                      resp = pg.goto(url, wait_until="domcontentloaded", timeout=45000)
+                      time.sleep(4)
+                      h = pg.content()
+                      rec["창_상태"] = resp.status if resp else None; rec["창_제목"] = pg.title(); rec["창_길이"] = len(h)
+                      gzip.open(f"out/c{i:03d}_page.html.gz", "wt", encoding="utf-8").write(h)
+                      ctx.close()
+                  except Exception as e:
+                      rec["창_오류"] = str(e)[:200]
+                  log.write(json.dumps(rec, ensure_ascii=False) + "\n"); log.flush()
+                  print(json.dumps(rec, ensure_ascii=False))
+                  time.sleep(random.uniform(6, 11))
+              b.close()
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cp-${{ github.run_id }}
+          path: out/
+          retention-days: 7
