@@ -29,6 +29,30 @@ def require_runner():
         raise NotOnRunner("runner only")
 
 
+# 11-16 제목 고침(사본 가지 title-fix · 지시 1116-0030): 카페 칸(AB) 카드는 같은 글 주소 링크가 여럿이고 첫 링크 글자가
+# 글 날짜('2주 전')라 '제목'에 날짜가 들어간다. '제목'은 그대로 두고(받는 쪽이 날짜로 씀) '글제목' 칸을 더한다:
+# 같은 주소 링크 글자 중 날짜 꼴 · 카페 이름 · 'RE '(댓글) · 숫자만인 것을 빼고 첫 글자.
+_DATE_ONLY = re.compile(r"^(\d+\s*(분|시간|일|주|개월|년)\s*전|\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.?)$")
+
+
+def post_title(P, box, url, name=""):
+    if not url:
+        return ""
+    for a in box.find_all("a", href=True):
+        if a["href"] != url:
+            continue
+        t = a.get_text(" ", strip=True)
+        for noise in P._NAME_NOISE:
+            t = t.replace(noise, " ")
+        t = re.sub(r"\s+", " ", t).strip()
+        if not t or _DATE_ONLY.match(t) or t.isdigit() or t.startswith("RE "):
+            continue
+        if name and (t == name or name.startswith(t) or t.startswith(name)):
+            continue
+        return t[:120]
+    return ""
+
+
 class UnreadablePage(Exception):
     pass
 
@@ -58,7 +82,8 @@ def make_reader(P, BeautifulSoup):
                 name = names.get(P._owner_key(url), "") or (next(iter(names.values())) if len(names) == 1 else "")
                 rows.append({"칸": "AB", "칸번호": "AB", "칸이름": "", "카드": ab, "종류": kind, "주소": url,
                              "주인": owner(url) if kind == "cafe" else "",
-                             "카페이름": name if kind == "cafe" else "", "제목": P._title_for_url(box, url)})
+                             "카페이름": name if kind == "cafe" else "", "제목": P._title_for_url(box, url),
+                             "글제목": post_title(P, box, url, name)})
                 continue
             h2_text = h2.get_text(strip=True)
             if any(s in h2_text for s in P._POPULAR_SKIP_PATTERNS):
@@ -76,7 +101,8 @@ def make_reader(P, BeautifulSoup):
                     rows.append({"칸": area, "칸번호": box_no, "칸이름": h2_text, "카드": c, "종류": kind,
                                  "주소": url, "주인": owner(url) if kind == "cafe" else "",
                                  "카페이름": names.get(P._owner_key(url), "") if kind == "cafe" else "",
-                                 "제목": P._title_for_url(box, url)})
+                                 "제목": P._title_for_url(box, url),
+                                 "글제목": post_title(P, box, url, names.get(P._owner_key(url), ""))})
         return rows
     return read
 
