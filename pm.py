@@ -12,7 +12,7 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-MAX_PAGES = 12
+MAX_PAGES = 1
 RAW_KEEP = 400000
 
 
@@ -33,6 +33,20 @@ def fetch_more(crawler, url, referer):
     return r.status_code, r.text
 
 
+def dest_map(bc, texts):
+    from bs4 import BeautifulSoup
+    out = {}
+    for t in texts:
+        for part in bc._html_parts(t) if t.lstrip()[:1] in "{[" else [t]:
+            soup = BeautifulSoup(part, "lxml")
+            for fr in soup.select("._fe_view_power_content"):
+                d = fr.get("data-power-content-url") or ""
+                links = bc._ad_links(fr)
+                if links and d:
+                    out[links[0]["href"].split("?", 1)[0]] = d
+    return out
+
+
 def one(kw, crawler, bc, keep_raw):
     from urllib.parse import quote
     html = crawler.fetch_search(kw)
@@ -43,7 +57,7 @@ def one(kw, crawler, bc, keep_raw):
         rec["브랜드칸"] = {"못읽음": str(e)}
         return rec
     more = read.get("더보기") or ""
-    pages, raws = [], []
+    pages, raws, more_texts = [], [], []
     if more:
         if more.startswith("/"):
             more = "https://s.search.naver.com" + more
@@ -60,6 +74,8 @@ def one(kw, crawler, bc, keep_raw):
                 break
             if keep_raw:
                 raws.append({"start": start, "code": code, "raw": text[:RAW_KEEP]})
+            elif code == 200:
+                more_texts.append(text)
             got = bc.add_more(cur, [text]) if code == 200 else cur
             new = len(got["광고"]) - len(cur["광고"])
             cards = 0
@@ -77,6 +93,12 @@ def one(kw, crawler, bc, keep_raw):
         read = cur
         read["더보기열어봄"] = True
         read["더보기전광고수"] = total_before
+    try:
+        dm = dest_map(bc, [html] + [r["raw"] for r in raws] + more_texts)
+        for ad in read.get("광고") or []:
+            ad["연결"] = dm.get(ad.get("열쇠"), "")
+    except Exception as e:
+        rec["연결오류"] = type(e).__name__
     rec["브랜드칸"] = read
     rec["더보기쪽"] = pages
     if keep_raw:
